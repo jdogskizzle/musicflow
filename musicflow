@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Wrapper: runs musicflow in its container. Usage: ./musicflow --help
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")"
+mkdir -p state
+if [[ "${1:-}" == "--rebuild" ]]; then shift; docker compose --profile cli build -q; fi
+docker image inspect musicflow:local >/dev/null 2>&1 || docker compose --profile cli build -q
+tty=(); [[ -t 0 ]] || tty=(-T)
+exec docker compose --profile cli run --rm "${tty[@]}" musicflow "$@"

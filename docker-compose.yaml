@@ -1,0 +1,49 @@
+# musicflow-web: the web app (put it behind a reverse proxy at /musicflow; it has no login).
+# musicflow:     the same tool for the terminal, run on demand through ./musicflow.
+# Both join the Docker network your Lidarr, slskd and Jellyfin containers are on, see the
+# library and downloads at the same paths Lidarr does, and share ./state.
+# Everything install-specific is set in .env (see .env.example).
+x-common: &common
+  build: .
+  image: musicflow:local
+  # Owner of new files; use a group your media apps share.
+  user: "${PUID:-1000}:${PGID:-1000}"
+  environment:
+    - TZ=${TZ:-UTC}
+    - LIDARR_URL=${LIDARR_URL:-http://lidarr:8686}
+    - SLSKD_URL=${SLSKD_URL:-http://slskd:5030}
+    - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin:8096}
+    - LIDARR_API_KEY=${LIDARR_API_KEY:-}
+    - SLSKD_API_KEY=${SLSKD_API_KEY:-}
+    - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
+    - ITUNES_COUNTRY=${ITUNES_COUNTRY:-us}
+    - MB_CONTACT=${MB_CONTACT:-}
+    - MUSIC_PATH=${MUSIC_PATH:-/music}
+    - DOWNLOADS_PATH=${DOWNLOADS_PATH:-/downloads}
+    - HOST_MUSIC_DIR=${MUSIC_DIR:?set MUSIC_DIR in .env}
+    - HOST_DOWNLOADS_DIR=${DOWNLOADS_DIR:?set DOWNLOADS_DIR in .env}
+  volumes:
+    - ${MUSIC_DIR}:${MUSIC_PATH:-/music}
+    - ${DOWNLOADS_DIR}:${DOWNLOADS_PATH:-/downloads}
+    - ./state:/state
+    # API keys are read straight from each app's own config (unless set in .env).
+    - ${LIDARR_CONFIG:-/dev/null}:/secrets/lidarr-config.xml:ro
+    - ${SLSKD_CONFIG:-/dev/null}:/secrets/slskd.yml:ro
+  networks:
+    - media
+
+services:
+  musicflow-web:
+    <<: *common
+    container_name: musicflow-web
+    restart: unless-stopped
+    entrypoint: ["python", "-I", "/app/web.py"]
+
+  musicflow:
+    <<: *common
+    profiles: ["cli"]
+
+networks:
+  media:
+    external: true
+    name: ${DOCKER_NETWORK:-media}

@@ -1,0 +1,7 @@
+# Secrets and local settings
+.env
+# Runtime state: job history, searches, settings (has usernames and library paths)
+state/
+# Python
+__pycache__/
+*.pyc

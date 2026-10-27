@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>musicflow</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='11' fill='%235b6cff'/><path d='M10 16.5a2 2 0 1 1-1-1.7V7l7-1.5v8a2 2 0 1 1-1-1.7V8.3L10 9.4z' fill='white'/></svg>">
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --panel2: #f0f2f5; --text: #1b1f24; --muted: #66707c;
+  --line: #e2e5ea; --accent: #4f5df0; --accent-text: #ffffff; --ok: #1f8a4c; --warn: #b26a00;
+  --bad: #c43838; --chip: #eceef2; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317; --panel: #191c21; --panel2: #20242a; --text: #e6e8eb; --muted: #959ca6;
+    --line: #2a2f36; --accent: #7480ff; --accent-text: #0d0f12; --ok: #4cc17f; --warn: #e6a23c;
+    --bad: #ef6a6a; --chip: #262a31; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: inherit; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1100px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 20px; height: 52px; }
+.brand { font-weight: 700; letter-spacing: .2px; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+.brand svg { width: 22px; height: 22px; }
+nav { display: flex; gap: 4px; }
+nav a { text-decoration: none; padding: 6px 12px; border-radius: 8px; color: var(--muted); font-weight: 500; }
+nav a.on { background: var(--panel2); color: var(--text); }
+.disk { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--panel); border-top: 1px solid var(--line); }
+footer .bar { height: 34px; justify-content: flex-end; }
+.disk .progress { width: 140px; }
+.disk.low .progress > div { background: var(--warn); }
+.disk.full .progress > div { background: var(--bad); }
+.disk.full b { color: var(--bad); }
+@media (max-width: 640px) { .disk .progress { width: 70px; } footer .bar { justify-content: center; } }
+.badge { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; border-radius: 9px; background: var(--accent); color: var(--accent-text); font-size: 11px; text-align: center; line-height: 18px; }
+.spacer { flex: 1; }
+.fmt { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.fmt select { padding: 4px 8px; font-size: 13px; }
+.q-ok { color: var(--ok); }
+.q-bad { color: var(--warn); }
+@media (max-width: 640px) { .fmt span { display: none; } }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 120px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin-bottom: 16px; }
+button, .btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.small { padding: 3px 9px; font-size: 12.5px; }
+button:disabled { opacity: .5; cursor: default; }
+input[type=text], select { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); min-width: 0; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.searchrow input { flex: 1; max-width: 360px; }
+@media (max-width: 640px) {
+  /* Phones: full-width box, the two buttons side by side under it. 16px stops iOS zooming in. */
+  .searchrow input { flex: 1 1 100%; max-width: none; font-size: 16px; padding: 9px 12px; }
+  .searchrow button { flex: 1; padding-top: 9px; padding-bottom: 9px; }
+}
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--chip); color: var(--muted); font-size: 12px; white-space: nowrap; }
+.chip.have, .chip.done { color: var(--ok); }
+.chip.missing, .chip.failed { color: var(--bad); }
+.chip.partial, .chip.active, .chip.queued, .chip.processing, .chip.picked, .chip.downloaded, .chip.pending { color: var(--warn); }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.err { color: var(--bad); }
+.progress { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+.progress > div { height: 100%; background: var(--accent); transition: width .4s; }
+.empty { padding: 40px; text-align: center; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 5px 11px; background: var(--panel); color: var(--muted); }
+.seg button.on { background: var(--panel2); color: var(--text); font-weight: 600; }
+
+/* artists */
+.artists { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.artist { padding: 12px 14px; text-decoration: none; display: block; }
+.artist:hover { border-color: var(--muted); }
+.artist .name { font-weight: 600; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artist .meta { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+
+/* albums */
+.album { margin-bottom: 10px; overflow: hidden; }
+.album-head { display: flex; gap: 12px; padding: 10px 12px; align-items: center; }
+.album-head img { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: var(--panel2); flex: none; }
+.album-title { font-weight: 600; }
+.album-info { flex: 1; min-width: 0; }
+.album-info .row { gap: 6px; }
+.album-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.results { border-top: 1px solid var(--line); background: var(--panel2); padding: 8px 12px 10px; }
+table { width: 100%; border-collapse: collapse; }
+td, th { padding: 5px 6px; text-align: left; vertical-align: middle; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; }
+tr.cand { cursor: pointer; }
+tr.cand:hover td { background: var(--panel); }
+tr.cand.sel td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.files { padding: 4px 6px 8px 34px; color: var(--muted); font-size: 12px; columns: 2; }
+.scroll { overflow-x: auto; }
+/* Fixed columns so long usernames/folders never shift the rows; long text is cut with "…". */
+table.cands { table-layout: fixed; min-width: 680px; }
+table.cands td, table.cands th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.cands tr.filesrow td { white-space: normal; }
+.pickbar { position: fixed; left: 0; right: 0; bottom: 34px; background: var(--panel); border-top: 1px solid var(--line); z-index: 6; }
+.pickbar .bar { height: 60px; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* activity */
+.job { padding: 12px 14px; margin-bottom: 10px; }
+.job .top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.job .title { font-weight: 600; flex: 1; min-width: 200px; }
+.report { margin-top: 8px; display: grid; grid-template-columns: 70px 1fr; gap: 2px 10px; font-size: 13px; }
+.report .k { color: var(--muted); }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+pre { white-space: pre-wrap; background: var(--panel2); padding: 10px; border-radius: 8px; margin: 6px 0 0; max-height: 360px; overflow: auto; }
+.folder { padding: 10px 14px; margin-bottom: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.folder .p { flex: 1; min-width: 220px; overflow-wrap: anywhere; }
+.toast { position: fixed; right: 16px; bottom: 108px; max-width: 420px; padding: 10px 14px; border-radius: 10px; background: var(--text); color: var(--bg); z-index: 10; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+@media (max-width: 640px) {
+  .bar { gap: 10px; }
+  .brand span { display: none; }
+  .album-head { flex-wrap: wrap; }
+  .album-actions { width: 100%; justify-content: flex-start; }
+  .hide-sm { display: none; }
+  .files { columns: 1; }
+}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <a class="brand" href="#/"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="var(--accent)"/><path d="M10 16.5a2 2 0 1 1-1-1.7V7l7-1.5v8a2 2 0 1 1-1-1.7V8.3L10 9.4z" fill="var(--panel)"/></svg><span>musicflow</span></a>
+  <nav>
+    <a href="#/" data-nav="artists">Artists</a>
+    <a href="#/activity" data-nav="activity">Activity<span id="activeBadge"></span></a>
+    <a href="#/import" data-nav="import">Import</a>
+  </nav>
+  <div class="spacer"></div>
+  <label class="fmt" title="Search results in this format are ranked first and preselected"><span>Wanted format</span><select id="fmt"></select></label>
+</div></header>
+<main id="view"></main>
+<div id="pickbar"></div>
+<footer><div class="bar" id="disk"></div></footer>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mb = n => n >= 1e12 ? (n / 1e12).toFixed(2) + ' TB' : n >= 1e9 ? (n / 1e9).toFixed(n >= 1e11 ? 0 : 1) + ' GB' : Math.round(n / 1e6) + ' MB';
+const cut = (s, n) => (s = String(s ?? '')).length > n ? s.slice(0, n - 1) + '…' : s;
+const speed = n => n ? (n / 1e6).toFixed(1) + ' MB/s' : '';
+const ago = t => { const s = Date.now() / 1000 - t; return s < 60 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago'; };
+const STATUS = { have: 'Have', missing: 'Missing', partial: 'Partial', active: 'In progress', unreleased: 'Unreleased',
+  picked: 'Waiting', queued: 'Downloading', downloaded: 'Downloaded', pending: 'Waiting', processing: 'Finishing', done: 'Done', failed: 'Failed' };
+
+async function api(path, body) {
+  const r = await fetch('api/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+let toastTimer;
+function toast(msg, bad) {
+  const t = $('#toast'); t.textContent = msg; t.style.background = bad ? 'var(--bad)' : ''; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+async function act(fn, okMsg) {
+  try { const r = await fn(); if (okMsg) toast(okMsg); refresh(); return r; } catch (e) { toast(e.message, true); }
+}
+
+// ---------------------------------------------------------------- state
+const S = {
+  route: [], overview: null, artist: null, jobs: null, folders: null,
+  filter: localGet('filter', 'missing'), artistFilter: 'all', q: '',
+  picks: {},       // album id -> candidate index, or -1 for skip
+  open: {},        // "albumId:index" -> file list shown
+  showAll: {},     // album id -> show all candidates
+  searchText: {},  // album id -> custom search words
+  dateEdit: {},    // album id -> {value} while the date box is open
+  importSel: null,
+};
+function localGet(k, d) { try { return localStorage.getItem('mf.' + k) ?? d; } catch { return d; } }
+function localSet(k, v) { try { localStorage.setItem('mf.' + k, v); } catch {} }
+
+// ---------------------------------------------------------------- routing
+function route() {
+  S.route = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const top = S.route[0] || 'artists';
+  document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.dataset.nav === (top === 'artist' ? 'artists' : top)));
+  if (top !== 'artist') { S.artist = null; $('#pickbar').innerHTML = ''; }
+  $('#view').innerHTML = '<div class="empty"><span class="spin"></span></div>';
+  refresh(true);
+}
+window.addEventListener('hashchange', route);
+
+// ---------------------------------------------------------------- wanted format
+async function loadFormat() {
+  try {
+    const r = await api('settings');
+    $('#fmt').innerHTML = Object.entries(r.formats).map(([k, v]) => `<option value="${k}" ${k === r.format ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  } catch {}
+}
+$('#fmt').onchange = async e => {
+  const label = e.target.selectedOptions[0].textContent;
+  const r = await act(() => api('settings', { format: e.target.value }), `Wanted format: ${label}`);
+  if (!r) return loadFormat();
+  S.picks = {};  // re-pick the best result for the new format
+  refresh(true);
+};
+loadFormat();
+
+let refreshing = false, timer;
+async function refresh(force) {
+  clearTimeout(timer);
+  if (refreshing && !force) return;
+  refreshing = true;
+  const top = S.route[0] || 'artists';
+  let next = 10000;
+  try {
+    if (top === 'artists') { S.overview = await api('overview'); renderArtists(); }
+    else if (top === 'artist') {
+      const raw = await fetch('api/artist/' + S.route[1]).then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)));
+      S.artist = JSON.parse(raw);
+      if (force || raw !== S.artistRaw) { S.artistRaw = raw; renderArtist(); }
+      const busy = S.artist.albums.some(a => a.status === 'active' || ['queued', 'searching', 'loading'].includes(a.search?.state));
+      next = busy ? 2500 : 10000;
+    }
+    else if (top === 'activity') { S.jobs = await api('jobs'); renderActivity(); next = 3000; }
+    else if (top === 'import') { if (force || !S.folders) S.folders = await api('folders'); if (!S.overview) S.overview = await api('overview'); renderImport(); next = 30000; }
+    updateBadge(); updateDisk();
+  } catch (e) {
+    $('#view').innerHTML = `<div class="empty err">Could not load: ${esc(e.message)}</div>`;
+  }
+  refreshing = false;
+  timer = setTimeout(refresh, next);
+}
+let diskAt = 0;
+async function updateDisk(force) {
+  if (!force && Date.now() - diskAt < 20000) return;
+  diskAt = Date.now();
+  try { S.disk = (await api('disk')).drives; } catch { return; }
+  $('#disk').innerHTML = S.disk.map(d => {
+    const used = d.total - d.free, pct = 100 * used / d.total;
+    const cls = d.free < 20e9 || pct > 95 ? 'full' : d.free < 60e9 || pct > 85 ? 'low' : '';
+    return `<div class="disk ${cls}" title="${esc(d.label)} drive: ${mb(used)} used of ${mb(d.total)}">
+      <span>${S.disk.length > 1 ? esc(d.label) + ': ' : ''}<b>${mb(d.free)}</b> free<span class="of"> of ${mb(d.total)}</span></span>
+      <div class="progress"><div style="width:${pct.toFixed(1)}%"></div></div></div>`;
+  }).join('');
+}
+async function updateBadge() {
+  let n = S.overview?.active_jobs;
+  if (S.jobs) n = S.jobs.jobs.filter(j => ['picked','queued','downloaded','pending','processing'].includes(j.status)).length;
+  if (n === undefined) { try { n = (await api('overview')).active_jobs; } catch { return; } }
+  $('#activeBadge').innerHTML = n ? `<span class="badge">${n}</span>` : '';
+}
+// Don't redraw over someone typing.
+function typing() { const a = document.activeElement; return a && a.tagName === 'INPUT' && a.type === 'text' && $('#view').contains(a); }
+
+// ---------------------------------------------------------------- artists
+function renderArtists() {
+  if (typing()) return;
+  const o = S.overview;
+  let list = o.artists;
+  if (S.filter === 'missing') list = list.filter(a => a.missing || a.partial || a.active);
+  if (S.q) list = list.filter(a => a.name.toLowerCase().includes(S.q.toLowerCase()));
+  const totalMissing = o.artists.reduce((n, a) => n + a.missing, 0);
+  const warn = [];
+  if (!o.slskd) warn.push('No slskd API key found, so searching is off.');
+  if (!o.jellyfin) warn.push('Jellyfin scans are off until JELLYFIN_API_KEY is set in .env.');
+  if (o.worker && !o.worker.running && o.worker.note) warn.push('Downloads paused: ' + o.worker.note + '.');
+  $('#view').innerHTML = `
+    <h1>Artists</h1>
+    <div class="sub">${o.artists.length} artists in Lidarr · ${totalMissing} missing albums</div>
+    ${warn.map(w => `<div class="card" style="padding:10px 14px;margin-bottom:12px;color:var(--warn)">${esc(w)}</div>`).join('')}
+    <div class="toolbar">
+      <input type="text" id="q" placeholder="Find an artist" value="${esc(S.q)}" style="flex:1;max-width:320px">
+      <div class="seg"><button data-f="missing" class="${S.filter === 'missing' ? 'on' : ''}">Missing albums</button><button data-f="all" class="${S.filter === 'all' ? 'on' : ''}">All</button></div>
+    </div>
+    ${list.length ? `<div class="artists">${list.map(a => `
+      <a class="card artist" href="#/artist/${a.id}">
+        <div class="name">${esc(a.name)}</div>
+        <div class="progress"><div style="width:${a.total ? 100 * a.have / a.total : 0}%"></div></div>
+        <div class="meta"><span>${a.have}/${a.total} albums</span><span>${[a.missing ? `<span class="err">${a.missing} missing</span>` : '', a.partial ? `${a.partial} partial` : '', a.active ? `<span style="color:var(--warn)">${a.active} in progress</span>` : ''].filter(Boolean).join(' · ') || 'complete'}</span></div>
+      </a>`).join('')}</div>` : `<div class="empty">${S.filter === 'missing' && !S.q ? 'Nothing missing. Every monitored album is in the library.' : 'No artists match.'}</div>`}`;
+  $('#q').oninput = e => { S.q = e.target.value; const pos = e.target.selectionStart; renderArtistsNow(pos); };
+  document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { S.filter = b.dataset.f; localSet('filter', S.filter); renderArtistsNow(); });
+}
+function renderArtistsNow(pos) {
+  const had = pos !== undefined; document.activeElement?.blur(); renderArtists();
+  if (had) { const q = $('#q'); q.focus(); q.setSelectionRange(pos, pos); }
+}
+
+// ---------------------------------------------------------------- one artist
+// While a finger is down or a scroll is still moving, a redraw would cut it off (iOS Safari).
+let touching = false, scrolledAt = 0;
+document.addEventListener('touchstart', () => { touching = true; }, { passive: true, capture: true });
+document.addEventListener('touchend', () => { touching = false; }, { passive: true, capture: true });
+document.addEventListener('touchcancel', () => { touching = false; }, { passive: true, capture: true });
+document.addEventListener('scroll', () => { scrolledAt = Date.now(); }, { passive: true, capture: true });
+let pendingRender;
+function userScrolling() { return touching || Date.now() - scrolledAt < 1200; }
+
+function renderArtist(fromUser) {
+  if (typing()) return;
+  clearTimeout(pendingRender);
+  if (!fromUser && userScrolling()) { pendingRender = setTimeout(() => S.artist && renderArtist(), 600); return; }
+  // Keep each results table's side scroll across the redraw.
+  const sx = {};
+  document.querySelectorAll('[data-sk]').forEach(el => { sx[el.dataset.sk] = el.scrollLeft; });
+  const ar = S.artist;
+  const counts = { all: ar.albums.length, missing: 0, have: 0 };
+  ar.albums.forEach(a => { if (['missing', 'partial', 'active'].includes(a.status)) counts.missing++; if (a.status === 'have') counts.have++; });
+  let albums = ar.albums.filter(a => a.monitored);
+  if (S.artistFilter === 'missing') albums = albums.filter(a => ['missing', 'partial', 'active'].includes(a.status));
+  if (S.artistFilter === 'have') albums = albums.filter(a => a.status === 'have');
+  const missing = ar.albums.filter(a => a.monitored && a.status === 'missing');
+  const unsearched = missing.filter(a => !a.search || a.search.state === 'error');
+  // default picks: best result, once results arrive
+  // default pick: the best result that hasn't already failed for this album
+  ar.albums.forEach(a => { if (a.search?.state === 'done' && S.picks[a.id] === undefined) { const i = a.search.candidates.findIndex(c => !c.failed); S.picks[a.id] = i; } });
+
+  $('#view').innerHTML = `
+    <div class="sub" style="margin-bottom:6px"><a href="#/" class="muted">← Artists</a></div>
+    <h1>${esc(ar.name)}</h1>
+    <div class="sub">${counts.have} of ${albums.length && S.artistFilter === 'all' ? albums.length : ar.albums.filter(a => a.monitored).length} albums in the library · <span class="mono">${esc(ar.path)}</span></div>
+    <div class="toolbar">
+      <button class="primary" id="searchAll" ${unsearched.length ? '' : 'disabled'}>Search ${unsearched.length || ''} missing album${unsearched.length === 1 ? '' : 's'}</button>
+      <button id="finishAll" title="Fetch cover, write tags and lyrics again for every album already in the library">Redo cover, tags & lyrics</button>
+      <div class="spacer"></div>
+      <div class="seg">${['all', 'missing', 'have'].map(f => `<button data-af="${f}" class="${S.artistFilter === f ? 'on' : ''}">${{ all: 'All', missing: 'Missing', have: 'Have' }[f]}</button>`).join('')}</div>
+    </div>
+    ${albums.length ? albums.map(albumCard).join('') : '<div class="empty">No albums here.</div>'}`;
+
+  $('#searchAll').onclick = () => act(() => api('search', { album_ids: unsearched.map(a => a.id) }), `Searching ${unsearched.length} album(s)`);
+  $('#finishAll').onclick = () => { if (confirm('Redo cover art (only where missing), tags and lyrics for every album of ' + ar.name + '?')) act(() => api('finish', { artist_id: ar.id }), 'Added to Activity'); };
+  document.querySelectorAll('[data-af]').forEach(b => b.onclick = () => { S.artistFilter = b.dataset.af; renderArtist(true); });
+  document.querySelectorAll('[data-search]').forEach(b => b.onclick = () => {
+    const id = +b.dataset.search; const text = $(`#st-${id}`)?.value || '';
+    delete S.picks[id]; S.showAll[id] = false;
+    act(() => api('search', { album_ids: [id], text }), 'Searching…');
+  });
+  document.querySelectorAll('input[id^=st-]').forEach(i => {
+    i.oninput = () => S.searchText[i.dataset.id] = i.value;
+    i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); i.blur(); $(`[data-search="${i.dataset.id}"]`).click(); } };
+  });
+  document.querySelectorAll('tr.cand').forEach(tr => tr.onclick = e => {
+    const [id, idx] = tr.dataset.c.split(':').map(Number);
+    if (e.target.closest('.peek')) { S.open[tr.dataset.c] = !S.open[tr.dataset.c]; } else { S.picks[id] = idx; }
+    renderArtist(true);
+  });
+  document.querySelectorAll('[data-skip]').forEach(b => b.onclick = () => { const id = +b.dataset.skip; S.picks[id] = S.picks[id] === -1 ? 0 : -1; renderArtist(true); });
+  document.querySelectorAll('[data-more]').forEach(b => b.onclick = () => { S.showAll[b.dataset.more] = !S.showAll[b.dataset.more]; renderArtist(true); });
+  document.querySelectorAll('[data-dateedit]').forEach(b => b.onclick = () => {
+    const a = ar.albums.find(x => x.id === +b.dataset.dateedit);
+    S.dateEdit[a.id] = S.dateEdit[a.id] ? undefined : { value: a.date || '' }; renderArtist(true);
+    const i = $(`#de-${a.id}`); if (i) { i.focus(); i.select(); }
+  });
+  document.querySelectorAll('input[id^=de-]').forEach(i => {
+    i.oninput = () => S.dateEdit[i.dataset.id].value = i.value;
+    i.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); i.blur(); $(`[data-datesave="${i.dataset.id}"]`).click(); } };
+  });
+  const saveDate = async (id, date) => {
+    const r = await act(() => api('date', { album_id: id, date }), date ? `Date set to ${date}; re-tagging` : 'Back to the Wikipedia date; re-tagging');
+    if (r) { delete S.dateEdit[id]; renderArtist(true); }
+  };
+  document.querySelectorAll('[data-datesave]').forEach(b => b.onclick = () => {
+    const id = +b.dataset.datesave, v = S.dateEdit[id].value.trim();
+    if (!/^\d{4}(-\d{2}(-\d{2})?)?$/.test(v)) return toast('Use YYYY-MM-DD, e.g. 1988-08-25', true);
+    saveDate(id, v);
+  });
+  document.querySelectorAll('[data-dateclear]').forEach(b => b.onclick = () => saveDate(+b.dataset.dateclear, ''));
+  document.querySelectorAll('[data-datecancel]').forEach(b => b.onclick = () => { delete S.dateEdit[b.dataset.datecancel]; renderArtist(true); });
+  document.querySelectorAll('[data-finish]').forEach(b => b.onclick = () => act(() => api('finish', { artist_id: ar.id, album_ids: [+b.dataset.finish], force_cover: b.dataset.force === '1' }), 'Added to Activity'));
+  renderPickbar();
+  document.querySelectorAll('[data-sk]').forEach(el => { if (sx[el.dataset.sk]) el.scrollLeft = sx[el.dataset.sk]; });
+}
+
+function albumCard(a) {
+  const job = a.job, s = a.search;
+  const chip = `<span class="chip ${a.status}">${STATUS[a.status] || a.status}${a.status === 'partial' ? ` ${a.have}/${a.total}` : ''}</span>`;
+  const types = [a.type, ...(a.secondary || [])].filter(Boolean).join(' · ');
+  let actions = '', body = '';
+  if (a.status === 'missing') {
+    actions = s && ['queued', 'searching', 'loading'].includes(s.state) ? `<span class="muted"><span class="spin"></span> ${{ queued: 'waiting to search', searching: 'searching', loading: 'loading saved results' }[s.state]}</span>`
+      : `<button class="small" data-search="${a.id}">${s ? 'Search again' : 'Search'}</button>`;
+    if (s && s.state === 'done') body = resultsTable(a);
+    if (s && s.state === 'error') body = `<div class="results err">Search failed: ${esc(s.error)}</div>`;
+  } else if (a.status === 'have') {
+    actions = `<button class="small" data-dateedit="${a.id}" title="Pin the release date written to the tags">Set date</button>
+               <button class="small" data-finish="${a.id}" title="Write tags and lyrics again, keep the cover">Re-tag</button>
+               <button class="small" data-finish="${a.id}" data-force="1" title="Also fetch the cover from iTunes again">Re-tag + new cover</button>`;
+    if (S.dateEdit[a.id]) body = `<div class="results"><div class="row">
+        <span class="muted" style="font-size:12.5px">Release date</span>
+        <input type="text" id="de-${a.id}" data-id="${a.id}" value="${esc(S.dateEdit[a.id].value)}" placeholder="1988-08-25" style="width:130px">
+        <button class="small primary" data-datesave="${a.id}">Save and re-tag</button>
+        ${a.date_override ? `<button class="small" data-dateclear="${a.id}" title="Go back to the Wikipedia (or MusicBrainz) date">Use Wikipedia date</button>` : ''}
+        <button class="small" data-datecancel="${a.id}">Cancel</button>
+        <span class="muted" style="font-size:12px">YYYY-MM-DD, or YYYY-MM / YYYY</span>
+      </div></div>`;
+  } else if (a.status === 'active' && job) {
+    body = `<div class="results">${jobLine(job)}</div>`;
+  } else if (a.status === 'partial') {
+    actions = `<span class="muted" style="font-size:12.5px">Some tracks are in the library. Finish this one in Lidarr.</span>`;
+  }
+  const lastJob = job && !['picked','queued','downloaded','pending','processing'].includes(job.status) && job.status === 'failed' && a.status === 'missing'
+    ? `<div class="err" style="font-size:12.5px">Last try failed: ${esc(job.error)}</div>` : '';
+  return `<div class="card album">
+    <div class="album-head">
+      <img src="api/art/album/${a.id}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+      <div class="album-info">
+        <div class="row"><span class="album-title">${esc(a.title)}</span>${chip}</div>
+        <div class="muted" style="font-size:12.5px">${esc(a.year || '????')} · ${esc(types)}${a.status === 'missing' && a.want ? ` · wants ${esc(a.want)}` : ''}${a.status === 'have' && a.selected ? ` · ${esc(a.selected)}` : ''}</div>
+        ${a.status === 'have' && a.date ? `<div class="muted" style="font-size:12.5px">Date ${esc(a.date)} <span style="${a.date_override ? 'color:var(--accent)' : ''}">(${esc(a.date_src)})</span></div>` : ''}
+        ${lastJob}
+      </div>
+      <div class="album-actions">${actions}</div>
+    </div>${body}</div>`;
+}
+
+function resultsTable(a) {
+  const s = a.search, cands = s.candidates || [];
+  const pick = S.picks[a.id];
+  const shown = S.showAll[a.id] ? cands : cands.slice(0, 5);
+  const words = S.searchText[a.id] ?? s.text ?? '';
+  const searchRow = `<div class="row searchrow" style="margin-top:8px">
+      <input type="text" id="st-${a.id}" data-id="${a.id}" value="${esc(words)}" placeholder="Search words" enterkeyhint="search" autocapitalize="off" autocorrect="off">
+      <button class="small" data-search="${a.id}">Search with these words</button>
+      ${cands.length ? `<button class="small" data-skip="${a.id}">${pick === -1 ? 'Don’t skip' : 'Skip this album'}</button>` : ''}
+    </div>`;
+  if (!cands.length) return `<div class="results"><div class="muted">No FLAC results for “${esc(s.text)}”. Try other words.</div>${searchRow}</div>`;
+  return `<div class="results">
+    <div class="scroll" data-sk="${a.id}"><table class="cands">
+      <colgroup><col style="width:30px"><col style="width:58px"><col style="width:150px"><col style="width:140px"><col style="width:72px"><col style="width:76px"><col style="width:80px"><col></colgroup>
+      <tr><th></th><th>Match</th><th>User</th><th>Files</th><th>Size</th><th>Slot</th><th>Speed</th><th>Folder</th></tr>
+      ${shown.map((c, i) => `
+        <tr class="cand ${pick === i ? 'sel' : ''}" data-c="${a.id}:${i}">
+          <td><input type="radio" ${pick === i ? 'checked' : ''} tabindex="-1"></td>
+          <td class="num"><b>${c.score}%</b></td>
+          <td title="${esc(c.username)}${c.failed ? ' (failed before)' : ''}">${c.failed ? '<span class="err" title="This source failed before">✕</span> ' : ''}${esc(cut(c.username, c.failed ? 14 : 16))}</td>
+          <td>${c.count} ${esc(c.ext)} <span class="${c.format_ok === true ? 'q-ok' : c.format_ok === false ? 'q-bad' : 'muted'}" title="${c.format_ok === true ? 'Your wanted format' : c.format_ok === false ? 'Not your wanted format' : 'Format not reported'}">${esc(c.quality)}</span>${c.multidisc ? ' <span class="chip">discs</span>' : ''}</td>
+          <td class="num">${mb(c.size)}</td>
+          <td>${c.free ? '<span style="color:var(--ok)">free</span>' : `<span style="color:var(--warn)">queue ${c.queue}</span>`}</td>
+          <td class="num">${speed(c.speed)}</td>
+          <td class="mono" title="${esc(c.dir)}"><span class="peek" style="cursor:zoom-in;text-decoration:underline dotted">${esc(c.folder)}</span></td>
+        </tr>
+        ${S.open[a.id + ':' + i] ? `<tr class="filesrow"><td colspan="8"><div class="files">${c.files.map(f => `<div>${esc(f)}</div>`).join('')}</div></td></tr>` : ''}`).join('')}
+    </table></div>
+    <div class="row" style="justify-content:space-between">
+      ${cands.length > 5 ? `<button class="small" data-more="${a.id}">${S.showAll[a.id] ? 'Show top 5' : `Show all ${cands.length}`}</button>` : '<span></span>'}
+      <span class="muted" style="font-size:12px">want ${esc(s.release || a.want)} · searched “${esc(s.text)}” ${ago(s.at)}</span>
+    </div>
+    ${searchRow}
+  </div>`;
+}
+
+function renderPickbar() {
+  const ar = S.artist;
+  const ready = ar ? ar.albums.filter(a => a.status === 'missing' && a.search?.state === 'done' && S.picks[a.id] >= 0 && a.search.candidates.length) : [];
+  if (!ready.length) { $('#pickbar').innerHTML = ''; return; }
+  const size = ready.reduce((n, a) => n + a.search.candidates[S.picks[a.id]].size, 0);
+  const free = S.disk && S.disk.length ? Math.min(...S.disk.map(d => d.free)) : null;
+  $('#pickbar').innerHTML = `<div class="pickbar"><div class="bar">
+    <div><b>${ready.length} album${ready.length === 1 ? '' : 's'} picked</b> <span class="muted">· ${mb(size)}${free !== null ? ` of ${mb(free)} free` : ''}</span>${free !== null && size > free ? ' <span class="err">· not enough space</span>' : ''}</div>
+    <div class="spacer"></div>
+    <button class="primary" id="go">Download and finish</button></div></div>`;
+  $('#go').onclick = async () => {
+    const picks = ready.map(a => { const c = a.search.candidates[S.picks[a.id]]; return { album_id: a.id, username: c.username, dir: c.dir }; });
+    const r = await act(() => api('pick', { picks }));
+    if (r) { ready.forEach(a => delete S.picks[a.id]); toast(`${r.added} download${r.added === 1 ? '' : 's'} started. Follow them in Activity.`); }
+  };
+}
+
+// ---------------------------------------------------------------- activity
+function jobLine(j) {
+  const pct = j.kind === 'download' && j.status === 'queued' ? j.pct || 0 : null;
+  let what = STATUS[j.status] || j.status;
+  if (j.status === 'queued') what = j.state && j.state.startsWith('Queued') ? 'Waiting in ' + esc(j.username) + '’s queue' : `Downloading ${Math.round(pct)}%`;
+  return `<div class="row" style="gap:10px"><span class="chip ${j.status}">${what}</span>
+    ${j.kind === 'download' ? `<span class="muted" style="font-size:12.5px">${j.file_count} files · ${mb(j.size)} from ${esc(j.username)}${j.speed ? ' · ' + speed(j.speed) : ''}</span>` : ''}
+    ${j.status === 'processing' ? '<span class="spin"></span><span class="muted" style="font-size:12.5px">importing, cover, tags, lyrics…</span>' : ''}</div>
+    ${pct !== null ? `<div class="progress" style="margin-top:6px"><div style="width:${pct}%"></div></div>` : ''}`;
+}
+
+function reportBlock(r) {
+  if (r.error) return `<div class="report"><span class="k">Error</span><span class="err">${esc(r.error)}</span></div>`;
+  const date = `${esc(r.date)} <span class="muted">from ${esc(r.date_src)}</span>${r.wiki_url ? ` · <a href="${esc(r.wiki_url)}" target="_blank" rel="noopener">page</a>` : ''}`;
+  return `<div class="report">
+    ${r.album ? `<span class="k">Album</span><b>${esc(r.album)}</b>` : ''}
+    <span class="k">Date</span><span>${date}</span>
+    ${r.year_note ? `<span class="k"></span><span style="color:var(--warn)">${esc(r.year_note)}</span>` : ''}
+    <span class="k">Cover</span><span>${esc(r.cover)}</span>
+    <span class="k">Tags</span><span>${esc(r.tagged)} files</span>
+    <span class="k">Lyrics</span><span>${esc(r.lyrics)}</span>
+    ${r.perms ? `<span class="k">Perms</span><span style="color:var(--warn)">${esc(r.perms)}</span>` : ''}
+    <span class="k">Folder</span><span class="mono">${esc(r.host_dir || r.dir || '')}</span>
+  </div>`;
+}
+
+function renderActivity() {
+  const { jobs, worker } = S.jobs;
+  const active = jobs.filter(j => ['picked','queued','downloaded','pending','processing'].includes(j.status));
+  const done = jobs.filter(j => !active.includes(j));
+  const kind = { download: 'Download', import: 'Import', finish: 'Redo' };
+  const card = j => `<div class="card job">
+    <div class="top">
+      <div class="title">${esc(j.artist)} — ${esc(j.album)} <span class="chip">${kind[j.kind]}</span></div>
+      <span class="muted" style="font-size:12px">${ago(j.finished_at || j.created)}</span>
+      ${j.status === 'failed' ? `<button class="small" data-retry="${j.id}">Retry</button>` : ''}
+      ${['picked', 'queued', 'pending'].includes(j.status) ? `<button class="small" data-cancel="${j.id}">Cancel</button>` : ''}
+      ${!['queued', 'processing'].includes(j.status) ? `<button class="small" data-dismiss="${j.id}">Dismiss</button>` : ''}
+    </div>
+    <div style="margin-top:6px">${jobLine(j)}</div>
+    ${j.error ? `<div class="err" style="margin-top:6px">${esc(j.error)}${j.kind === 'download' ? ` · <a href="#/artist/${j.artist_id}">pick another source</a>` : ''}</div>` : ''}
+    ${(j.reports || []).map(reportBlock).join('')}
+    ${j.log && j.log.length ? `<details ${S.open['log' + j.id] ? 'open' : ''} data-log="${j.id}"><summary>Log</summary><pre class="mono">${esc(j.log.join('\n'))}</pre></details>` : ''}
+  </div>`;
+  $('#view').innerHTML = `
+    <h1>Activity</h1>
+    <div class="sub">Downloads keep going while this page is closed.${worker && !worker.running && worker.note ? ` <span style="color:var(--warn)">Paused: ${esc(worker.note)}.</span>` : ''}</div>
+    <div class="toolbar"><button id="jf">Scan Jellyfin music now</button><div class="spacer"></div>${done.length ? '<button id="clear">Clear finished</button>' : ''}</div>
+    ${active.length ? `<h3 style="margin:18px 0 8px">In progress</h3>${active.map(card).join('')}` : ''}
+    ${done.length ? `<h3 style="margin:18px 0 8px">Finished</h3>${done.map(card).join('')}` : ''}
+    ${!jobs.length ? '<div class="empty">Nothing yet. Pick an artist and search their missing albums.</div>' : ''}`;
+  document.querySelectorAll('[data-retry]').forEach(b => b.onclick = () => act(() => api(`jobs/${b.dataset.retry}/retry`, {}), 'Retrying'));
+  document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => act(() => api(`jobs/${b.dataset.cancel}/cancel`, {}), 'Cancelled'));
+  document.querySelectorAll('[data-dismiss]').forEach(b => b.onclick = () => act(() => api(`jobs/${b.dataset.dismiss}/dismiss`, {})));
+  document.querySelectorAll('details[data-log]').forEach(d => d.ontoggle = () => S.open['log' + d.dataset.log] = d.open);
+  $('#jf').onclick = () => act(() => api('jellyfin', {}), 'Jellyfin scan started');
+  if ($('#clear')) $('#clear').onclick = () => act(() => api('jobs/clear', {}));
+  renderPickbar();
+}
+
+// ---------------------------------------------------------------- import
+function renderImport() {
+  if (typing()) return;
+  const f = S.folders.folders, sel = S.importSel;
+  const artists = S.overview.artists;
+  $('#view').innerHTML = `
+    <h1>Import a folder</h1>
+    <div class="sub">For albums you downloaded yourself in slskd. The files are copied, imported onto the CD release in Lidarr, then given a cover, tags and lyrics. The originals are removed only after Lidarr accepts them.</div>
+    ${sel ? `<div class="card" style="padding:14px;margin-bottom:16px">
+      <div class="mono" style="margin-bottom:10px">${esc(sel.path)} <span class="muted">· ${sel.files} audio files</span></div>
+      <div class="row">
+        <select id="impArtist"><option value="">Artist…</option>${artists.map(a => `<option value="${a.id}" ${sel.artist_id == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
+        <select id="impAlbum" ${sel.albums ? '' : 'disabled'}>${sel.albums ? sel.albums.map(a => `<option value="${a.id}" ${a.id === sel.album_id ? 'selected' : ''}>${esc(a.title)} (${esc(a.year)})</option>`).join('') : '<option>Album…</option>'}</select>
+        <label class="row" style="gap:4px"><input type="checkbox" id="impForce"> replace cover</label>
+        <button class="primary" id="impGo" ${sel.album_id ? '' : 'disabled'}>Import</button>
+        <button id="impCancel">Cancel</button>
+      </div>
+      ${sel.guessing ? '<div class="muted" style="margin-top:8px"><span class="spin"></span> asking Lidarr which album this is…</div>' : ''}
+    </div>` : ''}
+    ${f.length ? f.map((x, i) => `<div class="card folder"><div class="p"><div class="mono">${esc(x.name)}</div><div class="muted" style="font-size:12px">${x.files} audio files · ${ago(x.mtime)}</div></div><button class="small" data-pick="${i}">Import…</button></div>`).join('')
+      : '<div class="empty">No folders with audio files in the slskd downloads folder.</div>'}`;
+  document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
+    const x = f[+b.dataset.pick];
+    const guessArtist = artists.find(a => x.name.toLowerCase().includes(a.name.toLowerCase()) || a.name.toLowerCase() === x.name.split('/')[0].toLowerCase());
+    S.importSel = { path: x.path, files: x.files, artist_id: guessArtist?.id };
+    window.scrollTo(0, 0); renderImport(); if (guessArtist) guessAlbum();
+  });
+  if (!sel) return;
+  $('#impArtist').onchange = e => { sel.artist_id = +e.target.value || null; sel.albums = null; sel.album_id = null; renderImport(); if (sel.artist_id) guessAlbum(); };
+  $('#impAlbum').onchange = e => sel.album_id = +e.target.value;
+  $('#impCancel').onclick = () => { S.importSel = null; renderImport(); };
+  $('#impGo').onclick = async () => {
+    const r = await act(() => api('import', { folder: sel.path, artist_id: sel.artist_id, album_id: sel.album_id, force_cover: $('#impForce').checked }));
+    if (r) { S.importSel = null; location.hash = '#/activity'; }
+  };
+}
+async function guessAlbum() {
+  const sel = S.importSel; sel.guessing = true; renderImport();
+  try { const r = await api('import/guess', { folder: sel.path, artist_id: sel.artist_id }); sel.albums = r.albums; sel.album_id = r.guess; }
+  catch (e) { toast(e.message, true); }
+  sel.guessing = false; renderImport();
+}
+
+route();
+</script>
+</body>
+</html>
