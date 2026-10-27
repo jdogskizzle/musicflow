@@ -20,7 +20,7 @@ You need Docker with Compose, and Lidarr and slskd running in containers on one 
 (Jellyfin is optional).
 
 ```
-git clone https://github.com/<you>/musicflow.git && cd musicflow
+git clone https://github.com/jdogskizzle/musicflow.git && cd musicflow
 cp .env.example .env     # then edit it
 docker compose up -d --build musicflow-web
 ```
@@ -72,3 +72,7 @@ When the web app is running, it does the downloading; `get` from the terminal ad
 * Albums that are only partly in the library are skipped. Finish those in Lidarr.
 * If Wikipedia's year differs from the year in Lidarr's folder name, the report says so. Fix the date on musicbrainz.org and refresh the artist in Lidarr to rename the folder.
 * State lives in `state/`: `jobs.json` (queue), `settings.json`, `albums.json`, `searches.json`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
