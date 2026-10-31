@@ -32,19 +32,29 @@ In `.env`:
 * **`DOCKER_NETWORK`** and the **`*_URL`**s: the network your apps share and how to reach them on it. Add the URL base if you set one, e.g. `http://lidarr:8686/lidarr`.
 * **API keys**: point `LIDARR_CONFIG` / `SLSKD_CONFIG` at the apps' config files and musicflow reads the keys from them, or paste `LIDARR_API_KEY` / `SLSKD_API_KEY`. `JELLYFIN_API_KEY` turns on library scans.
 * **`PUID`, `PGID`**: the user and group new files are written as; match your media apps.
+* **`MUSICFLOW_USERNAME`, `MUSICFLOW_PASSWORD_HASH`**: the web app's sign-in. Make the hash with `docker compose run --rm --entrypoint python musicflow -m formlogin hash` (password at least 12 characters). The app won't start without them unless you set `MUSICFLOW_AUTH=off`, which is only for setups where nothing untrusted can reach it.
 
 `.env` and `state/` hold your keys and history; both are git-ignored.
 
 ## Web app
 
-Listens on port 8000 inside the container, with no login, so keep it on your home network.
-Put it behind your reverse proxy at `/musicflow/`, e.g. with Caddy:
+Listens on port 8000 inside the container (no port is published). Put it behind an HTTPS
+reverse proxy at `/musicflow/`, e.g. with Caddy:
 
 ```
 handle_path /musicflow/* {
 	reverse_proxy musicflow-web:8000
 }
 ```
+
+Signing in:
+
+* A sign-in page ([formlogin](https://github.com/jdogskizzle/formlogin), fetched by the build) guards every page and API call. Sessions last 30 days and survive restarts; *Sign out* is at the top right. Changing the password, or deleting `state/session.key`, signs every device out.
+* After 5 wrong passwords from one address, that address waits 15 minutes (50 from all addresses together pauses sign-in for a minute); each failure also takes a second. Failed attempts are logged (`docker logs musicflow-web`).
+* The visitor's address comes from the last `X-Forwarded-For` entry, so only expose the app through a proxy that sets it (Caddy does, and ignores a value sent by the visitor unless you configure `trusted_proxies`).
+* Cookies are `HttpOnly` and `SameSite=Lax`, and `Secure` when the proxy reports HTTPS; requests from other sites are refused.
+
+Pages:
 
 * **Artists**: who has missing albums.
 * **Artist page**: *Search N missing albums*, check the preselected best result for each (click a folder name to see its files, or search again with other words), then *Download and finish*. Owned albums have *Re-tag* / *Re-tag + new cover*.

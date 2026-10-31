@@ -18,9 +18,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import musicflow as mf  # noqa: E402
+import formlogin  # noqa: E402
+import formlogin.httpserver  # noqa: E402
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 PORT = int(os.environ.get('PORT', '8000'))
+
+# ---------------------------------------------------------------- login
+# MUSICFLOW_USERNAME, MUSICFLOW_PASSWORD_HASH, or MUSICFLOW_AUTH=off (see README).
+LOGIN = formlogin.Login.from_env(
+    'MUSICFLOW', 'musicflow', os.path.join(mf.STATE, 'session.key'), title='musicflow',
+    accent=('#4f5df0', '#7480ff'),
+    icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='11' fill='%235b6cff'/><path d='M10 16.5a2 2 0 1 1-1-1.7V7l7-1.5v8a2 2 0 1 1-1-1.7V8.3L10 9.4z' fill='white'/></svg>")
 
 cfg = mf.load_config()
 lid = mf.Lidarr(cfg['lidarr_url'], cfg['lidarr_key'])
@@ -428,7 +437,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(data)))
-        self.send_header('Cache-Control', 'no-store' if ctype == 'application/json' else 'max-age=3600')
+        self.send_header('Cache-Control', 'private, max-age=3600' if ctype.startswith('image/') else 'no-store')
+        for k, v in formlogin.SECURITY_HEADERS:
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(data)
 
@@ -445,6 +456,8 @@ class Handler(BaseHTTPRequestHandler):
     def route(self, method):
         path = urllib.parse.urlparse(self.path).path
         path = re.sub(r'^/musicflow(?=/|$)', '', path) or '/'
+        if formlogin.httpserver.handle(self, LOGIN, path):
+            return
         try:
             if method == 'GET' and path in ('/', '/index.html'):
                 with open(os.path.join(STATIC, 'index.html'), 'rb') as f:
@@ -466,7 +479,7 @@ class Handler(BaseHTTPRequestHandler):
                 jobs = sorted(mf.JOBS.all(), key=lambda j: -j.get('created', 0))
                 return self.send(200, {'jobs': [job_json(j) for j in jobs], 'worker': worker_state})
             if method == 'GET' and path == '/api/settings':
-                return self.send(200, api_settings())
+                return self.send(200, {**api_settings(), 'auth': LOGIN.enabled})
             if method == 'POST' and path == '/api/settings':
                 return self.send(200, api_set_settings(self.body()))
             if method == 'GET' and path == '/api/disk':

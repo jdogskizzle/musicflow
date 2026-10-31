@@ -40,6 +40,7 @@ footer .bar { height: 34px; justify-content: flex-end; }
 .spacer { flex: 1; }
 .fmt { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .fmt select { padding: 4px 8px; font-size: 13px; }
+#logout { white-space: nowrap; }
 .q-ok { color: var(--ok); }
 .q-bad { color: var(--warn); }
 @media (max-width: 640px) { .fmt span { display: none; } }
@@ -142,6 +143,7 @@ pre { white-space: pre-wrap; background: var(--panel2); padding: 10px; border-ra
   </nav>
   <div class="spacer"></div>
   <label class="fmt" title="Search results in this format are ranked first and preselected"><span>Wanted format</span><select id="fmt"></select></label>
+  <form method="post" action="logout" id="logout" hidden><button class="small" title="Sign out of musicflow on this device">Sign out</button></form>
 </div></header>
 <main id="view"></main>
 <div id="pickbar"></div>
@@ -160,6 +162,7 @@ const STATUS = { have: 'Have', missing: 'Missing', partial: 'Partial', active: '
 
 async function api(path, body) {
   const r = await fetch('api/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.status === 401) { location.reload(); throw new Error('Signed out'); }  // back to the sign-in page
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
@@ -202,6 +205,7 @@ window.addEventListener('hashchange', route);
 async function loadFormat() {
   try {
     const r = await api('settings');
+    $('#logout').hidden = !r.auth;
     $('#fmt').innerHTML = Object.entries(r.formats).map(([k, v]) => `<option value="${k}" ${k === r.format ? 'selected' : ''}>${esc(v)}</option>`).join('');
   } catch {}
 }
@@ -224,7 +228,7 @@ async function refresh(force) {
   try {
     if (top === 'artists') { S.overview = await api('overview'); renderArtists(); }
     else if (top === 'artist') {
-      const raw = await fetch('api/artist/' + S.route[1]).then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)));
+      const raw = await fetch('api/artist/' + S.route[1]).then(r => { if (r.status === 401) location.reload(); return r.ok ? r.text() : Promise.reject(new Error(r.statusText)); });
       S.artist = JSON.parse(raw);
       if (force || raw !== S.artistRaw) { S.artistRaw = raw; renderArtist(); }
       const busy = S.artist.albums.some(a => a.status === 'active' || ['queued', 'searching', 'loading'].includes(a.search?.state));

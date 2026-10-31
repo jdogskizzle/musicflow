@@ -1,10 +1,13 @@
-# musicflow-web: the web app (put it behind a reverse proxy at /musicflow; it has no login).
+# musicflow-web: the web app, with a sign-in page (put it behind an HTTPS reverse proxy at /musicflow).
 # musicflow:     the same tool for the terminal, run on demand through ./musicflow.
 # Both join the Docker network your Lidarr, slskd and Jellyfin containers are on, see the
 # library and downloads at the same paths Lidarr does, and share ./state.
 # Everything install-specific is set in .env (see .env.example).
 x-common: &common
-  build: .
+  build:
+    context: .
+    additional_contexts:
+      formlogin: ${FORMLOGIN_SRC:-https://github.com/jdogskizzle/formlogin.git#v1.0.0}   # sign-in library; FORMLOGIN_SRC=<folder> to build from a local copy
   image: musicflow:local
   # Owner of new files; use a group your media apps share.
   user: "${PUID:-1000}:${PGID:-1000}"
@@ -18,6 +21,9 @@ x-common: &common
     - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
     - ITUNES_COUNTRY=${ITUNES_COUNTRY:-us}
     - MB_CONTACT=${MB_CONTACT:-}
+    - MUSICFLOW_USERNAME=${MUSICFLOW_USERNAME:-}
+    - MUSICFLOW_PASSWORD_HASH=${MUSICFLOW_PASSWORD_HASH:-}
+    - MUSICFLOW_AUTH=${MUSICFLOW_AUTH:-}
     - MUSIC_PATH=${MUSIC_PATH:-/music}
     - DOWNLOADS_PATH=${DOWNLOADS_PATH:-/downloads}
     - HOST_MUSIC_DIR=${MUSIC_DIR:?set MUSIC_DIR in .env}
