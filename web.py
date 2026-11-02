@@ -25,9 +25,9 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 PORT = int(os.environ.get('PORT', '8000'))
 
 # ---------------------------------------------------------------- login
-# MUSICFLOW_USERNAME, MUSICFLOW_PASSWORD_HASH, or MUSICFLOW_AUTH=off (see README).
+# Set the password with `python -m formlogin passwd`, or MUSICFLOW_AUTH=off (see README).
 LOGIN = formlogin.Login.from_env(
-    'MUSICFLOW', 'musicflow', os.path.join(mf.STATE, 'session.key'), title='musicflow',
+    'MUSICFLOW', 'musicflow', mf.STATE, title='musicflow',
     accent=('#4f5df0', '#7480ff'),
     icon="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='11' fill='%235b6cff'/><path d='M10 16.5a2 2 0 1 1-1-1.7V7l7-1.5v8a2 2 0 1 1-1-1.7V8.3L10 9.4z' fill='white'/></svg>")
 

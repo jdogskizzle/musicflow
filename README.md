@@ -32,7 +32,7 @@ In `.env`:
 * **`DOCKER_NETWORK`** and the **`*_URL`**s: the network your apps share and how to reach them on it. Add the URL base if you set one, e.g. `http://lidarr:8686/lidarr`.
 * **API keys**: point `LIDARR_CONFIG` / `SLSKD_CONFIG` at the apps' config files and musicflow reads the keys from them, or paste `LIDARR_API_KEY` / `SLSKD_API_KEY`. `JELLYFIN_API_KEY` turns on library scans.
 * **`PUID`, `PGID`**: the user and group new files are written as; match your media apps.
-* **`MUSICFLOW_USERNAME`, `MUSICFLOW_PASSWORD_HASH`**: the web app's sign-in. Make the hash with `docker compose run --rm --entrypoint python musicflow -m formlogin hash` (password at least 12 characters). The app won't start without them unless you set `MUSICFLOW_AUTH=off`, which is only for setups where nothing untrusted can reach it.
+* **Sign-in**: set the password with `docker compose exec musicflow-web python -m formlogin passwd` (at least 12 characters; saved in `state/login.json`), or on first start on the setup page, with the code from `docker logs musicflow-web`. `MUSICFLOW_USERNAME` optionally fixes the login name. `MUSICFLOW_AUTH=off` turns sign-in off, only for setups where nothing untrusted can reach it.
 
 `.env` and `state/` hold your keys and history; both are git-ignored.
 

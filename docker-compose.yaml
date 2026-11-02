@@ -7,7 +7,7 @@ x-common: &common
   build:
     context: .
     additional_contexts:
-      formlogin: ${FORMLOGIN_SRC:-https://github.com/jdogskizzle/formlogin.git#v1.0.0}   # sign-in library; FORMLOGIN_SRC=<folder> to build from a local copy
+      formlogin: ${FORMLOGIN_SRC:-https://github.com/jdogskizzle/formlogin.git#v2.0.0}   # sign-in library; FORMLOGIN_SRC=<folder> to build from a local copy
   image: musicflow:local
   # Owner of new files; use a group your media apps share.
   user: "${PUID:-1000}:${PGID:-1000}"
