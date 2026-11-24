@@ -374,29 +374,76 @@ def api_folders():
                 if n not in skip and not n.startswith('.') and os.path.isdir(p):
                     visit(p, depth + 1)
     visit(mf.DOWNLOADS, 0)
-    out.sort(key=lambda f: -f['mtime'])
-    return {'folders': out}
+    # Loose disc folders ("CD 01", "CD 02") of one album become one entry.
+    by_path = {mf.container_path(f['path']): f for f in out}
+    grouped = []
+    for g in mf.disc_groups(list(by_path)):
+        fs = [by_path[p] for p in g]
+        if len(fs) == 1:
+            grouped.append(fs[0])
+            continue
+        grouped.append({'path': fs[0]['path'], 'paths': [f['path'] for f in fs],
+                        'name': f'{mf.folder_album_tag(g[0]) or "Album"} ({" + ".join(f["name"] for f in fs)})',
+                        'files': sum(f['files'] for f in fs),
+                        'mtime': max(f['mtime'] for f in fs)})
+    grouped.sort(key=lambda f: -f['mtime'])
+    return {'folders': grouped}
+
+
+def import_folders(body):
+    """The folder(s) an import is for: 'folders' (loose disc folders) or 'folder'."""
+    return [safe_folder(f) for f in (body.get('folders') or [body['folder']])]
 
 
 def api_import_guess(body):
-    folder = safe_folder(body['folder'])
+    folders = import_folders(body)
+    folder = folders[0]
     artist = lid.req('GET', f'artist/{int(body["artist_id"])}')
     guess = mf.guess_album(lid, artist, folder)
     albums = [{'id': a['id'], 'title': a['title'], 'year': (a.get('releaseDate') or '')[:4]}
               for a in sorted(lid.albums(artist['id']), key=lambda a: a.get('releaseDate') or '')]
     return {'guess': guess['id'], 'albums': albums,
-            'files': len(mf.audio_files(folder, mf.LOSSLESS | mf.LOSSY))}
+            'files': sum(len(mf.audio_files(f, mf.LOSSLESS | mf.LOSSY)) for f in folders)}
 
 
 def api_import(body):
-    folder = safe_folder(body['folder'])
+    folders = import_folders(body)
+    folder = folders[0]
     artist = lid.req('GET', f'artist/{int(body["artist_id"])}')
     album = lid.album(int(body['album_id']))
     j = mf.new_job('import', artist_id=artist['id'], artist=artist['artistName'], album_id=album['id'],
-                   album=album['title'], folder=folder, force_cover=bool(body.get('force_cover')),
+                   album=album['title'], folder=folder, folders=folders, force_cover=bool(body.get('force_cover')),
                    allow_lossy=bool(body.get('allow_lossy')))
     mf.JOBS.add(j)
     return {'job': j['id']}
+
+
+LOOKUPS = {}  # foreign album id -> Lidarr lookup result, so "add" doesn't trust the browser's copy
+
+
+def api_album_lookup(body):
+    artist = lid.req('GET', f'artist/{int(body["artist_id"])}')
+    text = (body.get('text') or '').strip()
+    if not text:
+        raise ValueError('type some words from the album title')
+    out = []
+    for a in lid.lookup_albums(artist, text)[:15]:
+        LOOKUPS[a['foreignAlbumId']] = a
+        counts = sorted({r.get('trackCount') for r in a.get('releases') or [] if r.get('trackCount')})
+        out.append({'foreign_id': a['foreignAlbumId'], 'title': a['title'], 'year': (a.get('releaseDate') or '')[:4],
+                    'type': a.get('albumType'), 'secondary': list(a.get('secondaryTypes') or []),
+                    'tracks': counts[:4], 'in_lidarr': a['in_lidarr']})
+    return {'results': out}
+
+
+def api_album_add(body):
+    artist = lid.req('GET', f'artist/{int(body["artist_id"])}')
+    found = LOOKUPS.get(body.get('foreign_id'))
+    if not found or (found.get('artist') or {}).get('foreignArtistId') != artist['foreignArtistId']:
+        raise ValueError('look the album up again first')
+    a = lid.add_album(artist, found)
+    albums_cache.clear()
+    return {'album_id': a['id'], 'title': a['title']}
 
 
 def api_job_action(jid, action):
@@ -501,6 +548,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, api_finish(self.body()))
             if method == 'POST' and path == '/api/import/guess':
                 return self.send(200, api_import_guess(self.body()))
+            if method == 'POST' and path == '/api/album/lookup':
+                return self.send(200, api_album_lookup(self.body()))
+            if method == 'POST' and path == '/api/album/add':
+                return self.send(200, api_album_add(self.body()))
             if method == 'POST' and path == '/api/import':
                 return self.send(200, api_import(self.body()))
             if method == 'POST' and path == '/api/jobs/clear':

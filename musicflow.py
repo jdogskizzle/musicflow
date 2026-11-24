@@ -232,6 +232,33 @@ class Lidarr:
     def album(self, album_id):
         return self.req('GET', f'album/{album_id}')
 
+    def lookup_albums(self, artist, text):
+        """MusicBrainz albums of this artist matching text, including ones the artist's metadata
+        profile leaves out (compilations, live albums...). Each gets 'in_lidarr'."""
+        have = {a['foreignAlbumId'] for a in self.albums(artist['id'])}
+        out = []
+        for a in self.req('GET', 'album/lookup', {'term': f'{artist["artistName"]} {text}'}) or []:
+            if (a.get('artist') or {}).get('foreignArtistId') != artist['foreignArtistId']:
+                continue
+            a['in_lidarr'] = a.get('foreignAlbumId') in have
+            out.append(a)
+        return out
+
+    def add_album(self, artist, found):
+        """Add one looked-up album to an artist already in Lidarr, monitored, without searching.
+        Lidarr keeps it even though the metadata profile would hide it, as long as it has files by
+        the next artist refresh (it only drops such albums while they are empty)."""
+        body = {k: v for k, v in found.items() if k != 'in_lidarr'}
+        body.update(artistId=artist['id'], artist=artist, monitored=True, anyReleaseOk=True,
+                    addOptions={'searchForNewAlbum': False})
+        added = self.req('POST', 'album', body=body)
+        for _ in range(30):  # Lidarr fills in releases and tracks right after adding
+            a = self.album(added['id'])
+            if a.get('releases') and (a.get('statistics') or {}).get('trackCount'):
+                return a
+            time.sleep(2)
+        return self.album(added['id'])
+
     def release_tracks(self, release_id):
         return self.req('GET', 'track', {'albumReleaseId': release_id})
 
@@ -1736,14 +1763,18 @@ def process_download(cfg, lid, j):
 
 def process_import(cfg, lid, j):
     exts = LOSSLESS | (LOSSY if j.get('allow_lossy') else set())
-    folder = j['folder']
-    files = sorted(audio_files(folder, exts))
-    if not files:
-        raise RuntimeError(f'no audio files in {host_path(folder)}')
+    folders = j.get('folders') or [j['folder']]
     srcs = []
-    for p in files:
-        rel = os.path.relpath(os.path.dirname(p), folder)
-        srcs.append((p, '' if rel == '.' else rel))
+    for folder in folders:
+        files = sorted(audio_files(folder, exts))
+        if not files:
+            raise RuntimeError(f'no audio files in {host_path(folder)}')
+        for p in files:
+            rel = os.path.relpath(os.path.dirname(p), folder)
+            rel = '' if rel == '.' else rel
+            if len(folders) > 1:  # one folder per disc: keep them apart as disc folders
+                rel = os.path.join(os.path.basename(folder.rstrip('/')), rel).rstrip('/')
+            srcs.append((p, rel))
     staged_dir, staged = stage(srcs, j['album_id'])
     return import_and_finish(cfg, lid, j['artist_id'], j['album_id'], staged_dir, staged, exts, j.get('force_cover'))
 
@@ -1760,6 +1791,35 @@ def import_and_finish(cfg, lid, artist_id, album_id, staged_dir, staged, exts, f
     shutil.rmtree(staged_dir, ignore_errors=True)
     log(green('  imported'))
     return finish_album(cfg, lid, artist, album_id, force_cover, exts)
+
+
+def folder_album_tag(folder):
+    """The album tag of the first audio file in a folder, or ''."""
+    for p in sorted(audio_files(folder, LOSSLESS | LOSSY))[:1]:
+        try:
+            m = mutagen.File(p, easy=True)
+            return str(((m.tags or {}).get('album') or [''])[0])
+        except Exception:
+            pass
+    return ''
+
+
+def disc_groups(folders):
+    """slskd keeps only a file's own folder, so a multi-disc album downloaded by hand lands as
+    loose 'CD 01', 'CD 02' folders. Group those by the album tag of their files.
+    Takes and returns lists of folder paths; folders that aren't loose disc folders stay alone."""
+    groups, out = {}, []
+    for f in folders:
+        if os.path.dirname(f.rstrip('/')) == DOWNLOADS and DISC_DIR.match(os.path.basename(f.rstrip('/'))):
+            key = norm(folder_album_tag(f)) or None
+            if key:
+                if key not in groups:
+                    groups[key] = []
+                    out.append(groups[key])
+                groups[key].append(f)
+                continue
+        out.append([f])
+    return [sorted(g) for g in out]
 
 
 def guess_album(lid, artist, folder, title=None):
@@ -1961,20 +2021,50 @@ def cmd_get(cfg, args):
 def cmd_import(cfg, args):
     lid = Lidarr(cfg['lidarr_url'], cfg['lidarr_key'])
     artist = lid.find_artist(args.artist)
-    folder = container_path(args.folder)
-    if not os.path.isdir(folder):
-        sys.exit(f'Not a folder: {args.folder}. Use a path under {host_path(DOWNLOADS)}.')
+    folders = [container_path(f) for f in args.folder]
+    for f, given in zip(folders, args.folder):
+        if not os.path.isdir(f):
+            sys.exit(f'Not a folder: {given}. Use a path under {host_path(DOWNLOADS)}.')
+    folder = folders[0]
     album = guess_album(lid, artist, folder, args.album)
-    log(bold(f'{artist["artistName"]} - {album["title"]}') + dim(f'   from {host_path(folder)}'))
+    log(bold(f'{artist["artistName"]} - {album["title"]}') + dim(f'   from {", ".join(host_path(f) for f in folders)}'))
     if not args.yes and ask(dim('  import this as that album? [Y/n] ')).lower().startswith('n'):
         return
     j = new_job('import', artist_id=artist['id'], artist=artist['artistName'], album_id=album['id'],
-                album=album['title'], folder=folder, allow_lossy=bool(args.allow_lossy),
+                album=album['title'], folder=folder, folders=folders, allow_lossy=bool(args.allow_lossy),
                 force_cover=bool(args.force_cover))
     rep = process_import(cfg, lid, j)
     print_report(rep)
     if not args.no_jellyfin:
         jellyfin_refresh(cfg)
+
+
+def describe_lookup(a):
+    types = ', '.join([a.get('albumType') or '?'] + list(a.get('secondaryTypes') or []))
+    counts = sorted({r.get('trackCount') for r in a.get('releases') or [] if r.get('trackCount')})
+    return (f'{a["title"]} ({(a.get("releaseDate") or "????")[:4]})  {types}'
+            + (f'  · {"/".join(map(str, counts[:4]))} tracks' if counts else '')
+            + ('  · already in Lidarr' if a.get('in_lidarr') else ''))
+
+
+def cmd_add(cfg, args):
+    lid = Lidarr(cfg['lidarr_url'], cfg['lidarr_key'])
+    artist = lid.find_artist(args.artist)
+    found = lid.lookup_albums(artist, args.title)
+    if not found:
+        sys.exit(f'MusicBrainz has nothing by {artist["artistName"]} matching "{args.title}".')
+    for i, a in enumerate(found[:10], 1):
+        log(f'  {bold(str(i))}) {describe_lookup(a)}')
+    choice = '1' if args.yes else ask(dim('  number to add (Enter = 1, q = quit) > ')) or '1'
+    if not choice.isdigit() or not 1 <= int(choice) <= min(10, len(found)):
+        return
+    pick = found[int(choice) - 1]
+    if pick['in_lidarr']:
+        log('Already in Lidarr.')
+        return
+    a = lid.add_album(artist, pick)
+    log(green(f'Added {a["title"]} to {artist["artistName"]}.') +
+        dim(f' Now: ./musicflow get "{artist["artistName"]}" --album "{a["title"]}", or import the folder you downloaded.'))
 
 
 def cmd_finish(cfg, args):
@@ -2015,12 +2105,17 @@ def main():
     r.add_argument('--stall-minutes', type=int, default=30)
     i = sub.add_parser('import', help='import a folder you downloaded yourself, then finish it')
     i.add_argument('artist')
-    i.add_argument('folder', help='a folder in your slskd downloads, e.g. "/srv/slskd/downloads/Artist - Album"')
+    i.add_argument('folder', nargs='+', help='folder(s) in your slskd downloads, e.g. "/srv/slskd/downloads/Artist - Album"; '
+                                          'give each disc folder for loose "CD 01" "CD 02" folders')
     i.add_argument('--album', help='Lidarr album title, if the guess is wrong')
     i.add_argument('--yes', '-y', action='store_true', help="don't ask before importing")
     i.add_argument('--allow-lossy', action='store_true')
     i.add_argument('--force-cover', action='store_true')
     i.add_argument('--no-jellyfin', action='store_true')
+    ad = sub.add_parser('add', help="add an album Lidarr doesn't list (a compilation, live album...) to an artist")
+    ad.add_argument('artist')
+    ad.add_argument('title', help='words from the album title')
+    ad.add_argument('--yes', '-y', action='store_true', help='add the first match without asking')
     f = sub.add_parser('finish', help='redo cover, tags, lyrics and permissions on imported albums')
     f.add_argument('artist')
     f.add_argument('--album')
@@ -2039,6 +2134,8 @@ def main():
             run_until_idle(cfg, args)
         elif args.cmd == 'import':
             cmd_import(cfg, args)
+        elif args.cmd == 'add':
+            cmd_add(cfg, args)
         elif args.cmd == 'finish':
             cmd_finish(cfg, args)
         elif args.cmd == 'format':

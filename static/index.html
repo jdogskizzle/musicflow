@@ -335,10 +335,30 @@ function renderArtist(fromUser) {
     <div class="toolbar">
       <button class="primary" id="searchAll" ${unsearched.length ? '' : 'disabled'}>Search ${unsearched.length || ''} missing album${unsearched.length === 1 ? '' : 's'}</button>
       <button id="finishAll" title="Fetch cover, write tags and lyrics again for every album already in the library">Redo cover, tags & lyrics</button>
+      <button id="addToggle" title="Add an album Lidarr doesn't list, like a compilation or live album">Add album…</button>
       <div class="spacer"></div>
       <div class="seg">${['all', 'missing', 'have'].map(f => `<button data-af="${f}" class="${S.artistFilter === f ? 'on' : ''}">${{ all: 'All', missing: 'Missing', have: 'Have' }[f]}</button>`).join('')}</div>
     </div>
+    ${S.add?.artist === ar.id ? addPanel(ar) : ''}
     ${albums.length ? albums.map(albumCard).join('') : '<div class="empty">No albums here.</div>'}`;
+  $('#addToggle').onclick = () => { S.add = S.add?.artist === ar.id ? null : { artist: ar.id, text: '' }; renderArtist(true); if (S.add) $('#addText')?.focus(); };
+  if (S.add?.artist === ar.id) {
+    const go = async () => {
+      S.add.text = $('#addText').value.trim(); if (!S.add.text) return;
+      S.add.busy = true; S.add.results = null; renderArtist(true);
+      try { S.add.results = (await api('album/lookup', { artist_id: ar.id, text: S.add.text })).results; } catch (e) { toast(e.message, true); }
+      S.add.busy = false; renderArtist(true);
+    };
+    $('#addText').oninput = e => S.add.text = e.target.value;
+    $('#addText').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#addText').blur(); go(); } };
+    $('#addGo').onclick = go;
+    document.querySelectorAll('[data-addfid]').forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Adding…';
+      const r = await act(() => api('album/add', { artist_id: ar.id, foreign_id: b.dataset.addfid }));
+      if (r) { toast(`Added ${r.title}. Search for it below, or import the folder you downloaded.`); S.add = null; S.artistFilter = 'missing'; refresh(true); }
+      else { b.disabled = false; b.textContent = 'Add'; }
+    });
+  }
 
   $('#searchAll').onclick = () => act(() => api('search', { album_ids: unsearched.map(a => a.id) }), `Searching ${unsearched.length} album(s)`);
   $('#finishAll').onclick = () => { if (confirm('Redo cover art (only where missing), tags and lyrics for every album of ' + ar.name + '?')) act(() => api('finish', { artist_id: ar.id }), 'Added to Activity'); };
@@ -382,6 +402,22 @@ function renderArtist(fromUser) {
   document.querySelectorAll('[data-finish]').forEach(b => b.onclick = () => act(() => api('finish', { artist_id: ar.id, album_ids: [+b.dataset.finish], force_cover: b.dataset.force === '1' }), 'Added to Activity'));
   renderPickbar();
   document.querySelectorAll('[data-sk]').forEach(el => { if (sx[el.dataset.sk]) el.scrollLeft = sx[el.dataset.sk]; });
+}
+
+function addPanel(ar) {
+  const st = S.add, res = st.results;
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="font-weight:600;margin-bottom:4px">Add an album Lidarr doesn't list</div>
+    <div class="muted" style="font-size:12.5px">For compilations, live albums and other releases ${esc(ar.name)}'s Lidarr metadata profile leaves out. It's added to Lidarr on its own (monitored, no automatic search); then search for it here or import a folder.</div>
+    <div class="row searchrow" style="margin-top:8px">
+      <input type="text" id="addText" value="${esc(st.text)}" placeholder="Words from the album title" enterkeyhint="search" autocapitalize="off" autocorrect="off">
+      <button class="small primary" id="addGo" ${st.busy ? 'disabled' : ''}>${st.busy ? 'Looking…' : 'Look up'}</button>
+    </div>
+    ${res ? (res.length ? `<div style="margin-top:10px">${res.map(r => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:8px 0">
+        <div><b>${esc(r.title)}</b> <span class="muted">(${esc(r.year || '????')}) · ${esc([r.type, ...r.secondary].filter(Boolean).join(', '))}${r.tracks.length ? ' · ' + r.tracks.join('/') + ' tracks' : ''}</span></div>
+        ${r.in_lidarr ? '<span class="muted" style="font-size:12.5px">already in Lidarr</span>' : `<button class="small" data-addfid="${esc(r.foreign_id)}">Add</button>`}
+      </div>`).join('')}</div>` : '<div class="muted" style="margin-top:8px">MusicBrainz has nothing by this artist with those words.</div>') : ''}
+  </div>`;
 }
 
 function albumCard(a) {
@@ -548,7 +584,7 @@ function renderImport() {
     <h1>Import a folder</h1>
     <div class="sub">For albums you downloaded yourself in slskd. The files are copied, imported onto the CD release in Lidarr, then given a cover, tags and lyrics. The originals are removed only after Lidarr accepts them.</div>
     ${sel ? `<div class="card" style="padding:14px;margin-bottom:16px">
-      <div class="mono" style="margin-bottom:10px">${esc(sel.path)} <span class="muted">· ${sel.files} audio files</span></div>
+      <div class="mono" style="margin-bottom:10px">${esc(sel.paths ? sel.paths.join(' + ') : sel.path)} <span class="muted">· ${sel.files} audio files</span></div>
       <div class="row">
         <select id="impArtist"><option value="">Artist…</option>${artists.map(a => `<option value="${a.id}" ${sel.artist_id == a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
         <select id="impAlbum" ${sel.albums ? '' : 'disabled'}>${sel.albums ? sel.albums.map(a => `<option value="${a.id}" ${a.id === sel.album_id ? 'selected' : ''}>${esc(a.title)} (${esc(a.year)})</option>`).join('') : '<option>Album…</option>'}</select>
@@ -557,13 +593,14 @@ function renderImport() {
         <button id="impCancel">Cancel</button>
       </div>
       ${sel.guessing ? '<div class="muted" style="margin-top:8px"><span class="spin"></span> asking Lidarr which album this is…</div>' : ''}
+      ${sel.artist_id && !sel.guessing ? `<div class="muted" style="margin-top:8px;font-size:12.5px">Album not in the list? <a href="#/artist/${sel.artist_id}">Add it on the artist page</a> (Add album…), then come back.</div>` : ''}
     </div>` : ''}
     ${f.length ? f.map((x, i) => `<div class="card folder"><div class="p"><div class="mono">${esc(x.name)}</div><div class="muted" style="font-size:12px">${x.files} audio files · ${ago(x.mtime)}</div></div><button class="small" data-pick="${i}">Import…</button></div>`).join('')
       : '<div class="empty">No folders with audio files in the slskd downloads folder.</div>'}`;
   document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
     const x = f[+b.dataset.pick];
     const guessArtist = artists.find(a => x.name.toLowerCase().includes(a.name.toLowerCase()) || a.name.toLowerCase() === x.name.split('/')[0].toLowerCase());
-    S.importSel = { path: x.path, files: x.files, artist_id: guessArtist?.id };
+    S.importSel = { path: x.path, paths: x.paths, name: x.name, files: x.files, artist_id: guessArtist?.id };
     window.scrollTo(0, 0); renderImport(); if (guessArtist) guessAlbum();
   });
   if (!sel) return;
@@ -571,13 +608,13 @@ function renderImport() {
   $('#impAlbum').onchange = e => sel.album_id = +e.target.value;
   $('#impCancel').onclick = () => { S.importSel = null; renderImport(); };
   $('#impGo').onclick = async () => {
-    const r = await act(() => api('import', { folder: sel.path, artist_id: sel.artist_id, album_id: sel.album_id, force_cover: $('#impForce').checked }));
+    const r = await act(() => api('import', { folder: sel.path, folders: sel.paths, artist_id: sel.artist_id, album_id: sel.album_id, force_cover: $('#impForce').checked }));
     if (r) { S.importSel = null; location.hash = '#/activity'; }
   };
 }
 async function guessAlbum() {
   const sel = S.importSel; sel.guessing = true; renderImport();
-  try { const r = await api('import/guess', { folder: sel.path, artist_id: sel.artist_id }); sel.albums = r.albums; sel.album_id = r.guess; }
+  try { const r = await api('import/guess', { folder: sel.path, folders: sel.paths, artist_id: sel.artist_id }); sel.albums = r.albums; sel.album_id = r.guess; }
   catch (e) { toast(e.message, true); }
   sel.guessing = false; renderImport();
 }

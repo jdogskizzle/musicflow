@@ -59,7 +59,8 @@ Pages:
 * **Artists**: who has missing albums.
 * **Artist page**: *Search N missing albums*, check the preselected best result for each (click a folder name to see its files, or search again with other words), then *Download and finish*. Owned albums have *Re-tag* / *Re-tag + new cover*.
 * **Activity**: progress, the per-album report (date and where it came from, cover, lyrics), logs, Retry/Cancel/Dismiss. Downloads keep going with the page closed.
-* **Import**: folders already in the slskd download folder (things you grabbed by hand).
+* **Import**: folders already in the slskd download folder (things you grabbed by hand). Loose disc folders that slskd saved separately (`CD 01`, `CD 02`…) are combined into one entry when their album tags match, and imported as one album.
+* **Add album…** (artist page): albums Lidarr doesn't list because the artist's metadata profile leaves them out (live albums, compilations…). Type words from the title, pick the MusicBrainz match, and only that album is added to Lidarr (monitored, no download started). Then search for it or import a folder. Lidarr drops a profile-excluded album again at its next artist refresh if it still has no files, so add it when you're ready to fill it.
 * **Wanted format** (top right): *CD 16/44.1*, *Hi-res 24-bit* or *Any lossless*. Results in that format rank first and are preselected; others are shown in orange. When a source doesn't report bit depth, a bitrate over ~1450 kbps counts as hi-res.
 
 Restart after code changes: `docker compose up -d --build musicflow-web`
@@ -70,6 +71,8 @@ Restart after code changes: `docker compose up -d --build musicflow-web`
 ./musicflow get "Artist"           # search, pick (Enter = best), download, finish
 ./musicflow get "Artist" --dry-run # just show what it would pick
 ./musicflow import "Artist" "/path/to/downloads/some folder"
+./musicflow import "Artist" "/path/CD 01" "/path/CD 02"   # one album from separate disc folders
+./musicflow add "Artist" "title words" [-y]   # add an album Lidarr's profile leaves out
 ./musicflow finish "Artist" [--album "Title"] [--force-cover]
 ./musicflow resume
 ./musicflow format [cd|hires|any]  # show or set the wanted format (get --format overrides it once)
