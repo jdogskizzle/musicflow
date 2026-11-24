@@ -10,7 +10,7 @@ way a careful manual workflow would:
 | Import | Copies the files to `<downloads>/musicflow-staging/`, then imports them with Lidarr's manual import onto the **normal CD release with the fewest discs**, even when the download is a vinyl rip, and renames them with your Lidarr naming format. The downloaded originals are deleted only after Lidarr accepts them. |
 | Lyrics | [LRCLIB](https://lrclib.net) lookup per track: synced lyrics to `.lrc`, plain to `.txt`, instrumentals to `[au: instrumental]`. Failed lookups are retried pass after pass until a pass recovers none. |
 | Cover | The largest Apple Music artwork (usually 3000×3000+), saved as `cover.jpg`. Falls back to Cover Art Archive and says so. |
-| Tags | Picard-style tags from MusicBrainz for the chosen release (IDs, credits, genres, label, barcode…) plus a 500px embedded cover. `date` is the Wikipedia infobox date when there is one. |
+| Tags | Picard-style tags from MusicBrainz for the chosen release (IDs, credits, genres, label, barcode…) plus a 500px embedded cover. Artists get their standard MusicBrainz name, not the one printed on that release, so *Smash* says "The Offspring" like the band's other albums. `date` is the Wikipedia infobox date when there is one. |
 | Jellyfin | Scans the music library once a batch is done (optional). |
 | Permissions | Album files get group read/write. |
 
@@ -75,12 +75,15 @@ Restart after code changes: `docker compose up -d --build musicflow-web`
 ./musicflow add "Artist" "title words" [-y]   # add an album Lidarr's profile leaves out
 ./musicflow finish "Artist" [--album "Title"] [--force-cover]
 ./musicflow resume
+./musicflow names [--fix]          # artists spelled more than one way across the library
 ./musicflow format [cd|hires|any]  # show or set the wanted format (get --format overrides it once)
 ```
 
 When the web app is running, it does the downloading; `get` from the terminal adds its picks to the same queue.
 
 ## Notes
+
+* `names` reads the whole library and lists every file whose artist, album artist or sort name differs from the artist's MusicBrainz name ("Offspring" / "The Offspring", "LINKIN PARK", "Queens Of The Stone Age"), which in Jellyfin shows up as duplicate artist pages. Files without MusicBrainz IDs are matched to your Lidarr artists by name, ignoring case, "The" and "&"/"and". `--fix` rewrites just those tags, then has Jellyfin re-read the albums (briefly unlocking ones whose metadata is locked).
 
 * Albums that are only partly in the library are skipped. Finish those in Lidarr.
 * If Wikipedia's year differs from the year in Lidarr's folder name, the report says so. Fix the date on musicbrainz.org and refresh the artist in Lidarr to rename the folder.

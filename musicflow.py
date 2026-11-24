@@ -1048,9 +1048,14 @@ def add_rels(rels, out):
 
 
 def credit(ac):
-    phrase = ''.join(a.get('name', '') + (a.get('joinphrase') or '') for a in ac or [])
-    sort = ''.join((a.get('artist') or {}).get('sort-name', a.get('name', '')) + (a.get('joinphrase') or '') for a in ac or [])
-    return phrase, sort, [a.get('name', '') for a in ac or []], [(a.get('artist') or {}).get('id', '') for a in ac or []]
+    """Artist tags from a MusicBrainz artist credit, using each artist's standard name rather
+    than the name printed on that release (Picard's "Use standardized artist names"), so one
+    artist doesn't split into several in players ("Offspring" on Smash, "The Offspring" elsewhere)."""
+    names = [(a.get('artist') or {}).get('name') or a.get('name', '') for a in ac or []]
+    joins = [a.get('joinphrase') or '' for a in ac or []]
+    phrase = ''.join(n + j for n, j in zip(names, joins))
+    sort = ''.join((a.get('artist') or {}).get('sort-name', n) + j for a, n, j in zip(ac or [], names, joins))
+    return phrase, sort, names, [(a.get('artist') or {}).get('id', '') for a in ac or []]
 
 
 def uniq(xs):
@@ -2089,6 +2094,227 @@ def cmd_finish(cfg, args):
         jellyfin_refresh(cfg)
 
 
+# ---------------------------------------------------------------- artist names across the library
+
+AUDIO_EXT = ('.flac', '.mp3', '.m4a', '.ogg', '.opus')
+
+
+def name_key(name):
+    """Spellings that are the same artist to a reader: "The Offspring" / "Offspring" /
+    "Offspring, The", "Simon & Garfunkel" / "Simon and Garfunkel", accents, case."""
+    k = norm(name)
+    k = re.sub(r'^the ', '', k)
+    k = re.sub(r' the$', '', k)
+    return k.replace(' ', '')
+
+
+def read_names(path):
+    try:
+        f = mutagen.File(path, easy=True)
+    except Exception:
+        return None
+    if f is None or f.tags is None:
+        return None
+    g = lambda k: [v for v in (f.tags.get(k) or []) if v]
+    return {'albumartist': g('albumartist'), 'albumartistsort': g('albumartistsort'),
+            'albumartist_ids': g('musicbrainz_albumartistid'), 'artist': g('artist'),
+            'artists': g('artists'), 'artistsort': g('artistsort'), 'artist_ids': g('musicbrainz_artistid')}
+
+
+def mb_artist_names(ids):
+    """Standard name and sort name per MusicBrainz artist id. (Lidarr's sortName is a lowercase
+    search key, not a sort name, so this always asks MusicBrainz.)"""
+    out = {}
+    for i in ids:
+        a = {}
+        for attempt in range(5):
+            try:
+                a = mb(f'artist/{i}') or {}
+                break
+            except HttpError as e:
+                if e.code != 503 or attempt == 4:
+                    warn(f'MusicBrainz artist {i}: {e}; left as it is')
+                    break
+                time.sleep(10 * (attempt + 1))
+        if a.get('name'):
+            out[i] = (a['name'], a.get('sort-name') or a['name'])
+    return out
+
+
+def plan_artist_names(cfg, root=MUSIC):
+    """Every file whose artist or album artist isn't spelled (or sorted) the way MusicBrainz
+    spells that artist, so one artist doesn't split into several in players. Files without
+    MusicBrainz ids are matched to a Lidarr artist by name ("Queens Of The Stone Age" ->
+    "Queens of the Stone Age"). Returns [(path, {tag: (old, new)})]."""
+    files = []
+    for d, _, fs in os.walk(root):
+        for f in sorted(fs):
+            if f.lower().endswith(AUDIO_EXT) and not f.startswith('._'):   # skip macOS ._ sidecars
+                t = read_names(os.path.join(d, f))
+                if t:
+                    files.append((os.path.join(d, f), t))
+    log(f'read {len(files)} files')
+
+    lid = Lidarr(cfg['lidarr_url'], cfg['lidarr_key'])
+    known = {a['foreignArtistId']: a['artistName'] for a in lid.req('GET', 'artist')}
+    id_of_key = {name_key(n): i for i, n in known.items()}
+    spellings, sorts, check = defaultdict(set), defaultdict(set), set()
+    for _, t in files:
+        for names, srt, ids in ((t['albumartist'], t['albumartistsort'], t['albumartist_ids']),
+                                (t['artist'], t['artistsort'], t['artist_ids'])):
+            if len(ids) == 1 and len(names) == 1:
+                spellings[ids[0]].add(names[0])
+                sorts[ids[0]].add((srt or [''])[0])
+            elif not ids and len(names) == 1:
+                i = id_of_key.get(name_key(names[0]))
+                if i and known[i] != names[0]:
+                    check.add(i)
+        for n, i in zip(t['artists'], t['artist_ids']):
+            spellings[i].add(n)
+    # Ids credited under more than one spelling or sort name, or not as Lidarr spells them.
+    check |= {i for i, ns in spellings.items() if len(ns) > 1 or len(sorts[i]) > 1
+              or (i in known and ns != {known[i]})}
+    canon = mb_artist_names(sorted(check))
+
+    def fix_one(names, ids):
+        """(standard name, sort name) for a single-artist credit, or None."""
+        if len(names) != 1:
+            return None
+        if len(ids) == 1:
+            return canon.get(ids[0])
+        if not ids:
+            return canon.get(id_of_key.get(name_key(names[0])))
+        return None
+
+    plan = []
+    for path, t in files:
+        ch = {}
+        new = fix_one(t['albumartist'], t['albumartist_ids'])
+        if new:
+            ch['albumartist'] = (t['albumartist'][0], new[0])
+            ch['albumartistsort'] = ((t['albumartistsort'] or [''])[0], new[1])
+        if len(t['artist_ids']) > 1 and len(t['artists']) == len(t['artist_ids']) and len(t['artist']) == 1:
+            phrase, parts = t['artist'][0], list(t['artists'])
+            for k, (n, i) in enumerate(zip(t['artists'], t['artist_ids'])):
+                if i in canon and canon[i][0] != n and n in phrase:
+                    phrase = phrase.replace(n, canon[i][0], 1)
+                    parts[k] = canon[i][0]
+            if parts != t['artists']:
+                ch['artist'] = (t['artist'][0], phrase)
+                ch['artists'] = (t['artists'], parts)
+        else:
+            new = fix_one(t['artist'], t['artist_ids'])
+            if new:
+                ch['artist'] = (t['artist'][0], new[0])
+                if t['artists'] == t['artist'] and t['artists'] != [new[0]]:
+                    ch['artists'] = (t['artists'], [new[0]])
+                ch['artistsort'] = ((t['artistsort'] or [''])[0], new[1])
+        ch = {k: v for k, v in ch.items() if v[0] != v[1]}
+        if ch:
+            plan.append((path, ch))
+    return plan
+
+
+def apply_artist_names(plan):
+    done, failed = 0, []
+    for path, ch in plan:
+        try:
+            f = mutagen.File(path, easy=True)
+            for k, (_, new) in ch.items():
+                try:
+                    f.tags[k] = new if isinstance(new, list) else [new]
+                except (KeyError, ValueError):
+                    pass   # this format has no such tag (e.g. "artists" in MP4)
+            f.save()
+            done += 1
+        except Exception as e:
+            failed.append(f'{host_path(path)}: {e}')
+    return done, failed
+
+
+def jellyfin_refresh_albums(cfg, album_dirs):
+    """Re-read these albums in Jellyfin so renamed artists show at once. {album dir: expected
+    album artist or None}. Albums with locked metadata are unlocked for the refresh and locked
+    again once Jellyfin shows the new album artist (or after two minutes). A library scan then
+    drops artists that no longer have albums."""
+    if not cfg['jellyfin_key']:
+        warn('Jellyfin refresh skipped: put JELLYFIN_API_KEY in .env')
+        return
+    h = {'Authorization': f'MediaBrowser Token="{cfg["jellyfin_key"]}"'}
+    base = cfg['jellyfin_url']
+    want = {d.rstrip('/'): n for d, n in album_dirs.items()}
+    try:
+        users = http('GET', f'{base}/Users', h) or []
+        admin = next((u['Id'] for u in users if (u.get('Policy') or {}).get('IsAdministrator')), None)
+        if not admin:
+            raise HttpError(0, b'no administrator user', base)
+        q = urllib.parse.urlencode({'Recursive': 'true', 'IncludeItemTypes': 'MusicAlbum',
+                                    'Fields': 'Path,AlbumArtist'})
+        items = [a for a in (http('GET', f'{base}/Users/{admin}/Items?{q}', h) or {}).get('Items') or []
+                 if (a.get('Path') or '').rstrip('/') in want]
+        rq = urllib.parse.urlencode({'MetadataRefreshMode': 'FullRefresh', 'ImageRefreshMode': 'Default',
+                                     'ReplaceAllMetadata': 'true', 'ReplaceAllImages': 'false', 'Recursive': 'true'})
+        relock = []
+        for a in items:
+            full = http('GET', f'{base}/Users/{admin}/Items/{a["Id"]}', h) or {}
+            if full.get('LockData'):
+                http('POST', f'{base}/Items/{a["Id"]}', h, dict(full, LockData=False))
+                relock.append(a)
+            http('POST', f'{base}/Items/{a["Id"]}/Refresh?{rq}', h)
+        deadline = time.time() + 120
+        while relock:
+            pending = []
+            for a in relock:
+                cur = http('GET', f'{base}/Users/{admin}/Items/{a["Id"]}', h) or {}
+                expect = want[a['Path'].rstrip('/')]
+                if (cur.get('AlbumArtist') == expect if expect else time.time() > deadline - 100) \
+                        or time.time() > deadline:
+                    http('POST', f'{base}/Items/{a["Id"]}', h, dict(cur, LockData=True))
+                else:
+                    pending.append(a)
+            relock = pending
+            if relock:
+                time.sleep(3)
+        log(green(f'Jellyfin: refreshed {len(items)} album(s)'))
+    except (HttpError, urllib.error.URLError) as e:
+        warn(f'Jellyfin album refresh failed: {e}')
+    jellyfin_refresh(cfg)
+
+
+def cmd_names(cfg, args):
+    plan = plan_artist_names(cfg)
+    if not plan:
+        log(green('Artist names are consistent across the library.'))
+        return
+    albums = defaultdict(list)
+    for path, ch in plan:
+        albums[os.path.dirname(path)].append(ch)
+    for d, chs in sorted(albums.items()):
+        moves = Counter((k, str(o), str(n)) for ch in chs for k, (o, n) in ch.items()
+                        if k in ('albumartist', 'artist', 'albumartistsort', 'artistsort'))
+        log(bold(os.path.relpath(d, MUSIC)))
+        for (k, o, n), c in sorted(moves.items()):
+            log(f'  {k:11} {o!r} -> {n!r}  ({c} file{"s" if c > 1 else ""})')
+    log(f'\n{len(plan)} files in {len(albums)} albums')
+    if not args.fix:
+        log('Nothing changed. Run with --fix to rewrite these tags.')
+        return
+    if not args.yes and input('rewrite these tags? [y/N] ').strip().lower() != 'y':
+        return
+    done, failed = apply_artist_names(plan)
+    log(green(f'rewrote {done} files'))
+    for f in failed:
+        warn(f)
+    if not args.no_jellyfin:
+        expect = {}
+        for path, ch in plan:
+            d = os.path.dirname(path)
+            if os.path.basename(d) and DISC_DIR.match(os.path.basename(d)) or re.match(r'^digital media \d+', os.path.basename(d), re.I):
+                d = os.path.dirname(d)   # Jellyfin's album is the folder above the disc folders
+            expect.setdefault(d, ch.get('albumartist', (None, None))[1])
+        jellyfin_refresh_albums(cfg, expect)
+
+
 def main():
     p = argparse.ArgumentParser(prog='musicflow', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -2122,6 +2348,10 @@ def main():
     f.add_argument('--force-cover', action='store_true', help='replace an existing cover.jpg')
     f.add_argument('--date', help='pin the date tag, e.g. 1988-08-25 (needs --album); "wikipedia" undoes it')
     f.add_argument('--no-jellyfin', action='store_true')
+    nm = sub.add_parser('names', help='find artists spelled more than one way in the library ("Offspring" / "The Offspring")')
+    nm.add_argument('--fix', action='store_true', help='rewrite the tags to the standard MusicBrainz name')
+    nm.add_argument('--yes', '-y', action='store_true', help="don't ask before rewriting")
+    nm.add_argument('--no-jellyfin', action='store_true')
     s = sub.add_parser('format', help='show or set the wanted format (shared with the web app)')
     s.add_argument('value', nargs='?', choices=list(FORMATS))
     args = p.parse_args()
@@ -2138,6 +2368,8 @@ def main():
             cmd_add(cfg, args)
         elif args.cmd == 'finish':
             cmd_finish(cfg, args)
+        elif args.cmd == 'names':
+            cmd_names(cfg, args)
         elif args.cmd == 'format':
             if args.value:
                 set_wanted_format(args.value)
